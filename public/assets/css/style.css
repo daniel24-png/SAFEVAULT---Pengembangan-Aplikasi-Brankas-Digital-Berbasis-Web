@@ -464,3 +464,22 @@ body {
     font-size: 0.875rem;
     margin-top: auto;
 }
+
+/* Utility Classes for CSP Compliance */
+.form-inline {
+    display: inline-block;
+}
+
+.section-intro {
+    margin-bottom: 1.5rem;
+}
+
+.section-title-left {
+    font-size: 1.75rem;
+    text-align: left;
+    margin-bottom: 0.25rem;
+}
+
+.section-desc {
+    color: var(--text-secondary);
+}

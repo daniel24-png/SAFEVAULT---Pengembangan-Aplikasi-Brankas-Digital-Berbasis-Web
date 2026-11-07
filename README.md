@@ -1,30 +1,59 @@
-<<<<<<< HEAD
 # SAFEVAULT - Brankas Digital Pribadi (Versi 0.1)
 
 SAFEVAULT adalah aplikasi web brankas digital pribadi yang dibangun menggunakan **PHP Native** dan **MySQL** yang berjalan di lingkungan web server **XAMPP**. Aplikasi ini dirancang untuk menyediakan tempat penyimpanan dan pengelolaan informasi sensitif secara terstruktur, aman, dan mudah dipelihara.
 
 ---
 
-## 🔒 Standar Keamanan Wajib (v0.1)
+## 🔒 Standar Keamanan & Proteksi (v0.1 Hardened)
 
-1. **Koneksi Database PDO & Prepared Statements**:
+1. **Perlindungan Direktori & File Non-Public (Defense-in-Depth)**:
+   - *Directory Listing* dinonaktifkan secara ketat menggunakan `Options -Indexes`.
+   - Permintaan ke root URL diarahkan secara otomatis ke direktori `public/`.
+   - Blokir akses web terhadap direktori internal (`app/`, `config/`, `database/`, `includes/`, `tests/`) menggunakan aturan Apache `.htaccess` (`Require all denied`).
+   - Blokir akses langsung ke berkas sensitif (`.env`, `.sql`, `.log`, `.pem`, `.key`, `.md`, `database.local.php`).
+   - Setiap skrip internal dan pengujian dilindungi *guard* PHP (`SAFEVAULT_APP` dan `php_sapi_name() === 'cli'`).
+
+2. **Login Rate Limiting & Proteksi Brute-Force**:
+   - Pembatasan maksimal **5 kegagalan login berturut-turut dalam jendela waktu 15 menit**.
+   - Diterapkan secara ganda: **per IP address** dan **per akun (username/email)**.
+   - Throttling bersifat sementara (*temporary lockout*) berbasis hitungan waktu mundur, tanpa mengunci akun secara permanen.
+   - Menggunakan tabel persisten `login_attempts` di database MySQL/MariaDB.
+   - Reset otomatis saat login berhasil dan pesan error yang seragam untuk mencegah *account enumeration*.
+
+3. **Manajemen Siklus Sesi (Session Timeout)**:
+   - **Idle Timeout (15 Menit)**: Sesi otomatis berakhir jika tidak ada aktivitas pengguna selama 15 menit.
+   - **Absolute Timeout (8 Jam)**: Sesi otomatis berakhir setelah 8 jam sejak waktu awal login.
+   - Pembersihan sesi total (penghapusan array `$_SESSION`, penghapusan cookie dengan waktu kedaluwarsa lampau, dan `session_destroy()`).
+   - Pengalihan otomatis ke halaman login dengan pesan notifikasi kedaluwarsa sesi.
+   - Permintaan di latar belakang (*background request*) tidak memperpanjang *idle timeout*.
+
+4. **Keamanan Cookie Session**:
+   - Cookie dikonfigurasi dengan flag `HttpOnly` (mencegah pencurian cookie via XSS) dan `SameSite=Lax` (mencegah CSRF).
+   - Pengaturan `session.use_strict_mode = 1` dan `session.use_only_cookies = 1`.
+   - Flag `Secure` aktif secara otomatis jika berjalan di lingkungan HTTPS, dan tetap kompatibel di lingkungan localhost HTTP.
+
+5. **Proteksi Session Fixation**:
+   - Memanggil `session_regenerate_id(true)` secara tepat setelah otentikasi kredensial berhasil untuk menerbitkan ID sesi baru.
+
+6. **Proteksi CSRF (Cross-Site Request Forgery)**:
+   - Token kriptografis 64-karakter heksadesimal (`bin2hex(random_bytes(32))`) divalidasi pada seluruh form yang mengubah state (Registrasi, Login, dan Logout).
+   - Validasi menggunakan `hash_equals()` untuk mencegah *timing attack*.
+
+7. **Koneksi Database PDO & Prepared Statements**:
    - Seluruh interaksi basis data menggunakan `PDO` dengan mode `PDO::ERRMODE_EXCEPTION` dan `PDO::ATTR_EMULATE_PREPARES => false`.
    - Tidak ada penggabungan string (*string concatenation*) pada query SQL untuk mencegah SQL Injection.
-2. **Password Hashing Modern (Argon2id)**:
+
+8. **Password Hashing Modern (Argon2id)**:
    - Menggunakan `password_hash($password, PASSWORD_ARGON2ID)` sesuai standar kriptografi terkini.
-   - Tidak menyimpan password plaintext atau membuat kolom salt terpisah karena Argon2id telah mengemas salt dan metadata algoritma secara aman.
-   - Dilengkapi pemeriksaan lingkungan: jika `PASSWORD_ARGON2ID` tidak tersedia pada PHP, aplikasi akan berhenti dan memberikan panduan teknis tanpa mengganti ke algoritma yang lebih lemah secara diam-diam.
-3. **Perlindungan Session Ketat**:
-   - Cookie session dikonfigurasi dengan flag `HttpOnly` (mencegah pencurian cookie via XSS) dan `SameSite=Lax` (mencegah eksploitasi CSRF).
-   - Memanggil `session_regenerate_id(true)` setelah login berhasil untuk mencegah serangan *Session Fixation*.
-4. **Proteksi CSRF (Cross-Site Request Forgery)**:
-   - Token kriptografis acak 64 karakter (`bin2hex(random_bytes(32))`) divalidasi pada seluruh form yang mengubah state (Registrasi, Login, dan Logout).
-   - Validasi menggunakan `hash_equals()` untuk mencegah *timing attack*.
-5. **Sanitasi Output & Validasi Backend**:
-   - Seluruh data dinamis yang ditampilkan ke antarmuka disanitasi menggunakan `htmlspecialchars(..., ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')`.
-   - Validasi ketat di sisi server untuk panjang username (3–30 karakter alfanumerik + underscore), format email standar RFC, kecocokan konfirmasi password, serta panjang password minimal 8 karakter.
-6. **Logout Aman (POST Only)**:
-   - Tombol logout mengirim permintaan `POST` yang dilengkapi token CSRF, mencegah logout paksa melalui URL gambar atau link `GET`.
+   - Tidak menyimpan password plaintext atau membuat kolom salt manual.
+   - Dilengkapi pemeriksaan lingkungan runtime Argon2id.
+
+9. **HTTP Security Headers Lengkap**:
+   - `X-Frame-Options: DENY` (perlindungan Clickjacking).
+   - `X-Content-Type-Options: nosniff` (perlindungan MIME-sniffing).
+   - `Referrer-Policy: strict-origin-when-cross-origin`.
+   - `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';` (perlindungan injeksi skrip, clickjacking, dan pembatasan resource ke origin terpercaya).
+   - `Permissions-Policy: camera=(self), microphone=(), geolocation=()` (izin kamera untuk origin mandiri demi kesiapan Face Recognition v0.2, mikrofon & lokasi dinonaktifkan).
 
 ---
 
@@ -33,23 +62,31 @@ SAFEVAULT adalah aplikasi web brankas digital pribadi yang dibangun menggunakan 
 ```text
 safevault/
 │
+├── .htaccess                    # Proteksi root: matikan Indexes, blokir berkas sensitif, redirect ke public/
+├── .gitignore                   # Menjaga kredensial database lokal tidak terunggah ke Git
+├── README.md                    # Dokumentasi lengkap proyek
+│
 ├── app/
+│   ├── .htaccess                # Blokir akses HTTP langsung ke direktori app (Require all denied)
 │   ├── controllers/             # Tempat logika controller masa depan
 │   ├── models/                  # Tempat model data masa depan
 │   ├── services/                # Logika bisnis tambahan (enkripsi, dekripsi, dll.)
 │   └── views/                   # Template antarmuka tambahan
 │
 ├── config/
+│   ├── .htaccess                # Blokir akses HTTP langsung ke direktori config (Require all denied)
 │   ├── database.example.php     # Template konfigurasi database aman untuk Git
 │   └── database.local.php       # Konfigurasi aktif lokal (diabaikan oleh Git via .gitignore)
 │
 ├── database/
-│   └── schema.sql               # Skrip DDL untuk database safevault_db dan tabel users
+│   ├── .htaccess                # Blokir akses HTTP langsung ke direktori database (Require all denied)
+│   └── schema.sql               # Skrip DDL untuk database safevault_db, tabel users & login_attempts
 │
 ├── includes/
-│   ├── bootstrap.php            # Inisialisasi session aman, cek Argon2id, singleton koneksi PDO
+│   ├── .htaccess                # Blokir akses HTTP langsung ke direktori includes (Require all denied)
+│   ├── bootstrap.php            # Inisialisasi session aman, security headers, singleton koneksi PDO
 │   ├── csrf.php                 # Modul token CSRF (generate, render input, validasi)
-│   └── functions.php            # Helper sanitasi, autentikasi, validasi, dan query pengguna
+│   └── functions.php            # Helper sanitasi, otentikasi, rate limiting, dan query pengguna
 │
 ├── public/                      # Document Root yang dapat diakses publik melalui web server
 │   ├── assets/
@@ -59,15 +96,14 @@ safevault/
 │   │   └── js/                  # Folder script interaktivitas JavaScript
 │   ├── index.php                # Halaman pembuka (Homepage) SAFEVAULT
 │   ├── register.php             # Halaman & pemrosesan registrasi pengguna
-│   ├── login.php                # Halaman & pemrosesan masuk (login) pengguna
-│   ├── dashboard.php            # Halaman beranda pribadi pengguna (terproteksi auth)
+│   ├── login.php                # Halaman & pemrosesan masuk dengan proteksi rate limiting
+│   ├── dashboard.php            # Halaman beranda pribadi pengguna (terproteksi auth & timeout)
 │   └── logout.php               # Handler keluar sesi pengguna (hanya menerima POST + CSRF)
 │
-├── tests/
-│   └── test_safevault.php       # Skrip pengujian otomatis (33 test cases, 100% lolos)
-│
-├── .gitignore                   # Menjaga kredensial database lokal tidak terunggah ke Git
-└── README.md                    # Dokumentasi lengkap proyek
+└── tests/
+    ├── .htaccess                # Blokir akses HTTP langsung ke direktori tests (Require all denied)
+    ├── audit_db_real.php        # Skrip audit integrasi langsung MariaDB (CLI only)
+    └── test_safevault.php       # Skrip pengujian otomatis (43 test cases, 100% lolos, CLI only)
 ```
 
 ---
@@ -89,57 +125,32 @@ safevault/
 3. Klik tombol **Choose File** / **Pilih Berkas**, lalu pilih file:
    ```text
    C:\xampp\htdocs\safevault\database\schema.sql
-   (atau C:\xampp\htdocs\savefault\database\schema.sql)
    ```
 4. Klik tombol **Import** (atau **Go**) di bagian bawah.
 5. Skrip akan secara otomatis membuat:
    - Database: `safevault_db`
    - Tabel: `users` (dengan kolom `id`, `username`, `email`, `password_hash`, `created_at`, `updated_at`).
+   - Tabel: `login_attempts` (dengan kolom `id`, `ip_address`, `identifier`, `attempted_at`).
 
-### Langkah 3: Periksa Konfigurasi Database Lokal
-Pastikan berkas `config/database.local.php` sudah ada. Pengaturan standar XAMPP:
-```php
-<?php
-return [
-    'host'     => '127.0.0.1',
-    'port'     => 3306,
-    'dbname'   => 'safevault_db',
-    'charset'  => 'utf8mb4',
-    'username' => 'root',
-    'password' => '', // Kosong untuk instalasi default XAMPP
-    'options'  => [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES   => false,
-    ],
-];
-```
-
-### Langkah 4: Buka Aplikasi di Browser
+### Langkah 3: Akses Aplikasi di Browser
 Buka browser dan kunjungi alamat URL berikut:
 
-- Jika nama folder adalah **`safevault`**:
+- **Target URL Resmi**:
   ```text
-  http://localhost/safevault/public/
+  http://localhost/safevault/
   ```
-
-- *(Catatan: Folder workspace saat ini bernama `savefault`. Jika Anda belum mengubah namanya di Windows Explorer, Anda dapat langsung membukanya di:)*
-  ```text
-  http://localhost/savefault/public/
-  ```
+  *(Akan diarahkan otomatis ke `http://localhost/safevault/public/`)*
 
 ---
 
 ## 🧪 Hasil Pengujian Fitur Otomatis
 
-Seluruh logika backend dan keamanan diuji menggunakan skrip `tests/test_safevault.php`:
-
-Jalankan perintah berikut di terminal:
+Jalankan pengujian menyeluruh melalui terminal:
 ```powershell
 php tests/test_safevault.php
 ```
 
-**Ringkasan Hasil Uji (33 Test Cases):**
+**Ringkasan Hasil Uji (43 Test Cases - 100% Lolos):**
 - [x] Ketersediaan `PASSWORD_ARGON2ID` pada lingkungan PHP (Lolos)
 - [x] Hashing password dengan format `$argon2id$` (Lolos)
 - [x] Verifikasi password benar via `password_verify` (Lolos)
@@ -160,15 +171,8 @@ php tests/test_safevault.php
 - [x] Regenerasi Session ID saat login untuk menangkal Session Fixation (Lolos)
 - [x] Proteksi otentikasi dashboard (`is_authenticated`) (Lolos)
 - [x] Penghapusan data sesi dan cookie saat logout (Lolos)
-
----
-
-## 📌 Rencana Tahap Pengembangan Berikutnya (v0.2)
-1. **Secret Notes Module**: Implementasi penyimpanan teks terenkripsi simetris (AES-256-GCM) dengan kunci turunan dari master key pengguna.
-2. **Secure File Vault**: Manajemen unggah berkas terenkripsi data-at-rest.
-3. **Image Steganography**: Fitur penyembunyian pesan di berkas citra digital.
-4. **Blockchain Audit Trail**: Buku besar log aktivitas brankas data.
-=======
-# SAFEVAULT---Pengembangan-Aplikasi-Brankas-Digital-Berbasis-Web
-SAFEVAULT merupakan aplikasi brankas digital pribadi yang memungkinkan pengguna menyimpan pesan rahasia, file, dan gambar dengan perlindungan kriptografi.  Pengguna tidak perlu mengirim pesan kepada orang lain. Mereka cukup menyimpan, melihat, dan mengambil kembali informasi rahasia melalui aplikasi setelah melewati proses autentikasi. 
->>>>>>> 1cf98fcaf2b0d1f50f12fef6df11c2d8be28f74a
+- [x] Login Rate Limiting (Maks 5 kegagalan dalam 15 menit per Akun & IP) (Lolos)
+- [x] Reset hitungan kegagalan login saat login berhasil (Lolos)
+- [x] Session Idle Timeout (Kedaluwarsa otomatis setelah 15 menit tidak aktif) (Lolos)
+- [x] Session Absolute Timeout (Kedaluwarsa otomatis setelah 8 jam sejak login) (Lolos)
+- [x] Background request tidak memperpanjang idle timeout (Lolos)

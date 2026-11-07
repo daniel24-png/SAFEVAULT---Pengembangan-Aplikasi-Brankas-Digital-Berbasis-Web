@@ -46,9 +46,9 @@ $page_title = 'Dashboard Pribadi - SAFEVAULT';
                 <span class="nav-link">Hai, <strong><?= e($user['username']) ?></strong></span>
                 
                 <!-- Logout Form (Metode POST + CSRF) -->
-                <form action="logout.php" method="POST" style="display: inline-block;">
+                <form action="logout.php" method="POST" class="form-inline">
                     <?= csrf_input() ?>
-                    <button type="submit" class="btn btn-danger" onclick="return confirm('Apakah Anda yakin ingin keluar?')">Keluar (Logout)</button>
+                    <button type="submit" class="btn btn-danger btn-logout">Keluar (Logout)</button>
                 </form>
             </nav>
         </div>
@@ -75,7 +75,7 @@ $page_title = 'Dashboard Pribadi - SAFEVAULT';
                 <div>
                     <form action="logout.php" method="POST">
                         <?= csrf_input() ?>
-                        <button type="submit" class="btn btn-outline">Logout Sesi</button>
+                        <button type="submit" class="btn btn-outline btn-logout">Logout Sesi</button>
                     </form>
                 </div>
             </section>
@@ -111,9 +111,9 @@ $page_title = 'Dashboard Pribadi - SAFEVAULT';
 
             <!-- Empat Kartu Fitur (Status: Belum Tersedia) -->
             <section>
-                <div style="margin-bottom: 1.5rem;">
-                    <h2 class="hero-title" style="font-size: 1.75rem; text-align: left; margin-bottom: 0.25rem;">Modul Brankas Digital</h2>
-                    <p style="color: var(--text-secondary);">Fitur perlindungan data tingkat lanjut yang sedang disiapkan untuk rilis berikutnya:</p>
+                <div class="section-intro">
+                    <h2 class="hero-title section-title-left">Modul Brankas Digital</h2>
+                    <p class="section-desc">Fitur perlindungan data tingkat lanjut yang sedang disiapkan untuk rilis berikutnya:</p>
                 </div>
 
                 <div class="feature-grid">
@@ -169,6 +169,7 @@ $page_title = 'Dashboard Pribadi - SAFEVAULT';
         </div>
     </footer>
 
+    <script src="assets/js/app.js"></script>
 </body>
 </html>
 

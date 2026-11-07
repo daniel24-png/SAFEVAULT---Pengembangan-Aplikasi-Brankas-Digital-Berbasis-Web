@@ -7,6 +7,12 @@
  * data uji yang tertinggal di dalam database.
  */
 
+// Keamanan: Larang akses langsung melalui web browser
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    exit('Akses hanya diizinkan melalui command line interface (CLI).');
+}
+
 define('SAFEVAULT_APP', true);
 
 error_reporting(E_ALL);

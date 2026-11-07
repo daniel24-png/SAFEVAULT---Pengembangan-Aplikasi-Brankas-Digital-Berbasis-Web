@@ -15,6 +15,12 @@
  * 10. Proteksi Logout (Hanya POST & Wajib CSRF)
  */
 
+// Keamanan: Larang akses langsung melalui web browser
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    exit('Akses hanya diizinkan melalui command line interface (CLI).');
+}
+
 define('SAFEVAULT_APP', true);
 
 // Aktifkan reporting error penuh untuk pengujian
@@ -269,6 +275,8 @@ assert_test(
 $_SESSION['user_id'] = 1;
 $_SESSION['username'] = "alice_vault";
 $_SESSION['email'] = "alice@safevault.id";
+$_SESSION['login_time'] = time();
+$_SESSION['last_activity'] = time();
 
 assert_test(
     "is_authenticated() menghasilkan TRUE ketika session aktif",
@@ -281,6 +289,83 @@ assert_test(
     "Session kosong setelah pembersihan logout",
     is_authenticated() === false && empty($_SESSION['user_id'])
 );
+
+// ---------------------------------------------------------
+// TEST 9: Login Rate Limiting (Priority 2)
+// ---------------------------------------------------------
+echo "\n[9] Pengujian Login Rate Limiting:\n";
+// Buat tabel login_attempts pada test_pdo SQLite in-memory
+$test_pdo->exec("
+    CREATE TABLE IF NOT EXISTS login_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ip_address VARCHAR(45) NOT NULL,
+        identifier VARCHAR(254) NOT NULL,
+        attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+");
+
+// 0 gagal: diizinkan
+assert_test("Rate limit awal: diizinkan (null)", check_login_rate_limit($test_pdo, "alice_vault", "127.0.0.1") === null);
+
+// Catat 4 kegagalan: masih diizinkan
+for ($i = 1; $i <= 4; $i++) {
+    record_failed_login($test_pdo, "alice_vault", "127.0.0.1");
+}
+assert_test("Rate limit setelah 4 kegagalan: masih diizinkan (null)", check_login_rate_limit($test_pdo, "alice_vault", "127.0.0.1") === null);
+
+// Catat kegagalan ke-5: harus dibatasi (throttled)
+record_failed_login($test_pdo, "alice_vault", "127.0.0.1");
+$rate_check_5 = check_login_rate_limit($test_pdo, "alice_vault", "127.0.0.1");
+assert_test("Rate limit setelah 5 kegagalan: dibatasi (throttled)", $rate_check_5 !== null && $rate_check_5 > 0);
+
+// Coba username berbeda dari IP yang sama: harus tetap dibatasi (IP throttle)
+assert_test("Pembatasan per IP aktif untuk username berbeda", check_login_rate_limit($test_pdo, "different_user", "127.0.0.1") !== null);
+
+// Reset percobaan setelah login sukses
+clear_login_attempts($test_pdo, "alice_vault", "127.0.0.1");
+assert_test("Clear login attempts mengembalikan status ke diizinkan", check_login_rate_limit($test_pdo, "alice_vault", "127.0.0.1") === null);
+
+// ---------------------------------------------------------
+// TEST 10: Session Timeout (Priority 3)
+// ---------------------------------------------------------
+echo "\n[10] Pengujian Session Timeout (Idle & Absolute):\n";
+
+// Sesi aktif dalam batas waktu
+$_SESSION['user_id'] = 99;
+$_SESSION['login_time'] = time() - 300;     // 5 menit lalu
+$_SESSION['last_activity'] = time() - 60;   // 1 menit lalu
+assert_test("Sesi valid dalam batas waktu menghasilkan is_authenticated() = TRUE", is_authenticated() === true);
+
+// Idle Timeout (> 15 menit / 900 detik)
+$_SESSION['user_id'] = 99;
+$_SESSION['login_time'] = time() - 2000;
+$_SESSION['last_activity'] = time() - 901;  // Lewat 15 menit
+$idle_check = is_authenticated();
+assert_test("Sesi lewat 15 menit tidak aktif ditolak (Idle Timeout)", $idle_check === false && empty($_SESSION['user_id']));
+
+// Absolute Timeout (> 8 jam / 28.800 detik)
+$_SESSION['user_id'] = 99;
+$_SESSION['login_time'] = time() - 28801;   // Lewat 8 jam
+$_SESSION['last_activity'] = time() - 10;   // Baru saja aktif
+$abs_check = is_authenticated();
+assert_test("Sesi lewat 8 jam sejak login ditolak (Absolute Timeout)", $abs_check === false && empty($_SESSION['user_id']));
+
+// Background request tidak memperbarui last_activity
+$_SESSION['user_id'] = 99;
+$_SESSION['login_time'] = time() - 100;
+$fixed_time = time() - 300;
+$_SESSION['last_activity'] = $fixed_time;
+$_SERVER['HTTP_X_BACKGROUND_REQUEST'] = '1';
+$bg_check = is_authenticated();
+assert_test("Background request tidak memperpanjang last_activity", $bg_check === true && $_SESSION['last_activity'] === $fixed_time);
+unset($_SERVER['HTTP_X_BACKGROUND_REQUEST']);
+
+// Normal request memperbarui last_activity
+$norm_check = is_authenticated();
+assert_test("Normal request memperbarui last_activity ke waktu terkini", $norm_check === true && $_SESSION['last_activity'] >= time() - 1);
+
+// Bersihkan session
+$_SESSION = [];
 
 // ---------------------------------------------------------
 // RINGKASAN HASIL TEST

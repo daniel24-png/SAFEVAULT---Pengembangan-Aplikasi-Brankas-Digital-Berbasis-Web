@@ -12,6 +12,9 @@ if (!defined('SAFEVAULT_APP')) {
     define('SAFEVAULT_APP', true);
 }
 
+// Set zona waktu default ke waktu lokal server
+date_default_timezone_set('Asia/Jakarta');
+
 // 1. Konfigurasi Keamanan Session (HttpOnly & SameSite)
 if (session_status() === PHP_SESSION_NONE) {
     // Pengaturan parameter cookie session
@@ -32,6 +35,15 @@ if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.use_only_cookies', '1');
 
     session_start();
+}
+
+// 2. HTTP Security Headers (Clickjacking, MIME-Sniffing, CSP & Permissions Policy)
+if (!headers_sent()) {
+    header('X-Frame-Options: DENY');
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+    header('Permissions-Policy: camera=(self), microphone=(), geolocation=()');
 }
 
 // 2. Pemeriksaan Wajib Ketersediaan PASSWORD_ARGON2ID

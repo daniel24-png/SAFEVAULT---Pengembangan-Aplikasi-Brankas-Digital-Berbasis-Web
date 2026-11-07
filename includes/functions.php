@@ -34,25 +34,112 @@ function redirect(string $path): void
 }
 
 /**
- * Memeriksa apakah pengguna saat ini sudah terautentikasi (login).
+ * Menghapus dan menghancurkan sesi serta cookie sesi secara bersih.
  *
- * @return bool
+ * @return void
+ */
+function destroy_session_and_cookies(): void
+{
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(
+            session_name(),
+            '',
+            time() - 42000,
+            $params['path'],
+            $params['domain'],
+            $params['secure'],
+            $params['httponly']
+        );
+    }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_destroy();
+    }
+}
+
+/**
+ * Memeriksa apakah pengguna saat ini sudah terautentikasi (login)
+ * serta memvalidasi masa berlaku sesi (Idle Timeout & Absolute Timeout).
+ *
+ * @return bool True jika sesi aktif dan belum kedaluwarsa
  */
 function is_authenticated(): bool
 {
-    return !empty($_SESSION['user_id']);
+    if (empty($_SESSION['user_id'])) {
+        return false;
+    }
+
+    $now = time();
+    $idle_timeout = 900;        // 15 menit
+    $absolute_timeout = 28800;  // 8 jam
+
+    // 1. Validasi Absolute Timeout (8 Jam sejak waktu login awal)
+    $login_time = $_SESSION['login_time'] ?? 0;
+    if ($login_time > 0 && ($now - $login_time) > $absolute_timeout) {
+        destroy_session_and_cookies();
+        return false;
+    }
+
+    // 2. Validasi Idle Timeout (15 Menit sejak aktivitas terakhir)
+    $last_activity = $_SESSION['last_activity'] ?? 0;
+    if ($last_activity > 0 && ($now - $last_activity) > $idle_timeout) {
+        destroy_session_and_cookies();
+        return false;
+    }
+
+    // Perpanjang idle timeout HANYA jika bukan background request
+    $is_background = !empty($_SERVER['HTTP_X_BACKGROUND_REQUEST']) 
+                     || (!empty($_GET['background']) && $_GET['background'] === '1');
+    if (!$is_background) {
+        $_SESSION['last_activity'] = $now;
+    }
+
+    return true;
 }
 
 /**
  * Memastikan hanya pengguna yang sudah login yang dapat mengakses halaman.
- * Jika belum login, diarahkan ke halaman login.
+ * Jika sesi kedaluwarsa atau belum login, diarahkan ke halaman login dengan pesan yang sesuai.
  *
  * @return void
  */
 function require_auth(): void
 {
+    $was_logged_in = !empty($_SESSION['user_id']);
+    $last_activity = $_SESSION['last_activity'] ?? 0;
+    $login_time = $_SESSION['login_time'] ?? 0;
+    $now = time();
+
+    // Deteksi alasan kedaluwarsa sebelum sesi dihancurkan
+    $is_idle_expired = ($was_logged_in && $last_activity > 0 && ($now - $last_activity) > 900);
+    $is_absolute_expired = ($was_logged_in && $login_time > 0 && ($now - $login_time) > 28800);
+
     if (!is_authenticated()) {
-        set_flash('error', 'Silakan login terlebih dahulu untuk mengakses halaman ini.');
+        // Mulai sesi baru yang bersih untuk menyimpan flash message
+        if (session_status() === PHP_SESSION_NONE) {
+            $is_secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                         || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+
+            session_set_cookie_params([
+                'lifetime' => 0,
+                'path'     => '/',
+                'domain'   => '',
+                'secure'   => $is_secure,
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+            session_start();
+        }
+
+        if ($is_absolute_expired) {
+            set_flash('warning', 'Sesi Anda telah kedaluwarsa setelah 8 jam demi keamanan. Silakan login kembali.');
+        } elseif ($is_idle_expired) {
+            set_flash('warning', 'Sesi Anda telah berakhir karena tidak ada aktivitas selama 15 menit. Silakan login kembali.');
+        } else {
+            set_flash('error', 'Silakan login terlebih dahulu untuk mengakses halaman ini.');
+        }
+
         redirect('login.php');
     }
 }
@@ -261,5 +348,108 @@ function create_user(PDO $pdo, string $username, string $email, string $password
     ]);
 
     return (int) $pdo->lastInsertId();
+}
+
+/**
+ * Mendapatkan IP klien secara aman.
+ *
+ * @return string
+ */
+function get_client_ip(): string
+{
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '127.0.0.1';
+}
+
+/**
+ * Memeriksa pembatasan laju percobaan login (Rate Limiting).
+ * Maksimal 5 kegagalan login dalam jendela waktu 15 menit per Akun atau per IP.
+ *
+ * @param PDO $pdo
+ * @param string $identifier Username atau email
+ * @param string $ip Alamat IP klien
+ * @return int|null Sisa waktu tunggu (detik) jika dibatasi, null jika diizinkan
+ */
+function check_login_rate_limit(PDO $pdo, string $identifier, string $ip): ?int
+{
+    $window_seconds = 900; // 15 menit
+    $max_attempts = 5;
+    $normalized_ident = strtolower(trim($identifier));
+    $cutoff = date('Y-m-d H:i:s', time() - $window_seconds);
+
+    // Hitung percobaan gagal per IP dalam 15 menit terakhir
+    $stmtIp = $pdo->prepare('
+        SELECT COUNT(*) as total, MAX(attempted_at) as newest 
+        FROM login_attempts 
+        WHERE ip_address = :ip AND attempted_at > :cutoff
+    ');
+    $stmtIp->execute([':ip' => $ip, ':cutoff' => $cutoff]);
+    $ipData = $stmtIp->fetch();
+    $ipCount = (int) ($ipData['total'] ?? 0);
+
+    // Hitung percobaan gagal per Akun (identifier) dalam 15 menit terakhir
+    $stmtAcc = $pdo->prepare('
+        SELECT COUNT(*) as total, MAX(attempted_at) as newest 
+        FROM login_attempts 
+        WHERE identifier = :ident AND attempted_at > :cutoff
+    ');
+    $stmtAcc->execute([':ident' => $normalized_ident, ':cutoff' => $cutoff]);
+    $accData = $stmtAcc->fetch();
+    $accCount = (int) ($accData['total'] ?? 0);
+
+    if ($ipCount >= $max_attempts || $accCount >= $max_attempts) {
+        $lastTimeStr = ($ipCount >= $max_attempts) ? ($ipData['newest'] ?? 'now') : ($accData['newest'] ?? 'now');
+        $lastTimestamp = strtotime($lastTimeStr);
+        $elapsed = time() - $lastTimestamp;
+        $remaining = max(1, $window_seconds - $elapsed);
+        return (int) $remaining;
+    }
+
+    return null;
+}
+
+/**
+ * Mencatat kegagalan login ke tabel login_attempts.
+ *
+ * @param PDO $pdo
+ * @param string $identifier Username atau email
+ * @param string $ip Alamat IP klien
+ * @return void
+ */
+function record_failed_login(PDO $pdo, string $identifier, string $ip): void
+{
+    $normalized_ident = strtolower(trim($identifier));
+    $now = date('Y-m-d H:i:s');
+    $stmt = $pdo->prepare('INSERT INTO login_attempts (ip_address, identifier, attempted_at) VALUES (:ip, :ident, :attempted_at)');
+    $stmt->execute([
+        ':ip'           => $ip,
+        ':ident'        => $normalized_ident,
+        ':attempted_at' => $now,
+    ]);
+
+    // Pembersihan probabilistik berkala untuk data usang (> 24 jam)
+    if (mt_rand(1, 50) === 1) {
+        $cutoff24 = date('Y-m-d H:i:s', time() - 86400);
+        $stmtClean = $pdo->prepare('DELETE FROM login_attempts WHERE attempted_at < :cutoff');
+        $stmtClean->execute([':cutoff' => $cutoff24]);
+    }
+}
+
+/**
+ * Menghapus catatan percobaan gagal setelah login berhasil.
+ *
+ * @param PDO $pdo
+ * @param string $identifier Username atau email
+ * @param string $ip Alamat IP klien
+ * @return void
+ */
+function clear_login_attempts(PDO $pdo, string $identifier, string $ip): void
+{
+    $normalized_ident = strtolower(trim($identifier));
+    $stmt = $pdo->prepare('DELETE FROM login_attempts WHERE identifier = :ident OR ip_address = :ip');
+    $stmt->execute([
+        ':ident' => $normalized_ident,
+        ':ip'    => $ip,
+    ]);
 }
 

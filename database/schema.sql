@@ -23,3 +23,14 @@ CREATE TABLE IF NOT EXISTS `users` (
     UNIQUE KEY `uk_users_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 3. Buat Tabel Pencatatan Percobaan Login (Rate Limiting)
+CREATE TABLE IF NOT EXISTS `login_attempts` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `ip_address` VARCHAR(45) NOT NULL,
+    `identifier` VARCHAR(254) NOT NULL,
+    `attempted_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    INDEX `idx_ip_attempt` (`ip_address`, `attempted_at`),
+    INDEX `idx_ident_attempt` (`identifier`, `attempted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

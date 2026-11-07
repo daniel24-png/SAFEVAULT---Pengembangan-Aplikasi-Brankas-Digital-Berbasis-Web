@@ -27,28 +27,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 $pdo = get_db();
+                $client_ip = get_client_ip();
 
-                // Cari pengguna berdasarkan username ATAU email dengan Prepared Statement
-                $user = find_user_by_identifier($pdo, $identifier_val);
-
-                // Verifikasi keberadaan pengguna dan kecocokan password_hash
-                if ($user && password_verify($password, $user['password_hash'])) {
-                    // KEAMANAN WAJIB: Regenerasi ID Sesi untuk mencegah Session Fixation
-                    session_regenerate_id(true);
-
-                    // Simpan data identitas pengguna ke dalam sesi
-                    $_SESSION['user_id']  = (int) $user['id'];
-                    $_SESSION['username'] = (string) $user['username'];
-                    $_SESSION['email']    = (string) $user['email'];
-
-                    // Buat token CSRF baru untuk sesi yang baru
-                    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-
-                    set_flash('success', 'Selamat datang kembali, ' . $user['username'] . '!');
-                    redirect('dashboard.php');
+                // 2. Pemeriksaan Rate Limiting (Maks 5 gagal dalam 15 menit)
+                $throttle_seconds = check_login_rate_limit($pdo, $identifier_val, $client_ip);
+                if ($throttle_seconds !== null) {
+                    $minutes = (int) ceil($throttle_seconds / 60);
+                    $errors[] = "Terlalu banyak percobaan login yang gagal. Akses dibatasi sementara demi keamanan. Silakan coba kembali dalam {$minutes} menit.";
                 } else {
-                    // Pesan kesalahan umum yang aman (mencegah enumerasi akun)
-                    $errors[] = 'Username/email atau password yang Anda masukkan salah.';
+                    // Cari pengguna berdasarkan username ATAU email dengan Prepared Statement
+                    $user = find_user_by_identifier($pdo, $identifier_val);
+
+                    // Verifikasi keberadaan pengguna dan kecocokan password_hash
+                    if ($user && password_verify($password, $user['password_hash'])) {
+                        // Bersihkan riwayat percobaan gagal setelah login berhasil
+                        clear_login_attempts($pdo, $identifier_val, $client_ip);
+
+                        // KEAMANAN WAJIB: Regenerasi ID Sesi untuk mencegah Session Fixation
+                        session_regenerate_id(true);
+
+                        // Simpan data identitas pengguna ke dalam sesi
+                        $_SESSION['user_id']       = (int) $user['id'];
+                        $_SESSION['username']      = (string) $user['username'];
+                        $_SESSION['email']         = (string) $user['email'];
+                        $_SESSION['login_time']    = time(); // Untuk Absolute Session Timeout
+                        $_SESSION['last_activity'] = time(); // Untuk Idle Session Timeout
+
+                        // Buat token CSRF baru untuk sesi yang baru
+                        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
+                        set_flash('success', 'Selamat datang kembali, ' . $user['username'] . '!');
+                        redirect('dashboard.php');
+                    } else {
+                        // Catat percobaan login yang gagal untuk rate limiting
+                        record_failed_login($pdo, $identifier_val, $client_ip);
+
+                        // Pesan kesalahan umum yang aman (mencegah enumerasi akun)
+                        $errors[] = 'Username/email atau password yang Anda masukkan salah.';
+                    }
                 }
             } catch (Throwable $e) {
                 error_log('[SAFEVAULT Login Error] ' . $e->getMessage());

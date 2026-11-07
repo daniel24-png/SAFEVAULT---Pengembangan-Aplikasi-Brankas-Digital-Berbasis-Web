@@ -7,6 +7,11 @@
  * JANGAN menyimpan password produksi di file ini.
  */
 
+if (!defined('SAFEVAULT_APP')) {
+    http_response_code(403);
+    exit('Akses langsung tidak diizinkan.');
+}
+
 return [
     'host'     => '127.0.0.1',
     'port'     => 3306,
