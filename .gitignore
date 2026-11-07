@@ -1,0 +1,30 @@
+# ========================================================
+# SAFEVAULT - Git Ignore
+# ========================================================
+
+# Kredensial Database Lokal (Wajib Rahasia)
+config/database.local.php
+
+# Environment Files
+.env
+.env.local
+.env.*.local
+
+# Editor & IDE Settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+
+# Operating System Files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary & Log Files
+*.log
+tmp/
+cache/
+tests/session_tmp/
