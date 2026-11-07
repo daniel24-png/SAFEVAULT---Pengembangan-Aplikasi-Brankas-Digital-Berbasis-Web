@@ -1,0 +1,2 @@
+# SAFEVAULT---Pengembangan-Aplikasi-Brankas-Digital-Berbasis-Web
+SAFEVAULT merupakan aplikasi brankas digital pribadi yang memungkinkan pengguna menyimpan pesan rahasia, file, dan gambar dengan perlindungan kriptografi.  Pengguna tidak perlu mengirim pesan kepada orang lain. Mereka cukup menyimpan, melihat, dan mengambil kembali informasi rahasia melalui aplikasi setelah melewati proses autentikasi. 
