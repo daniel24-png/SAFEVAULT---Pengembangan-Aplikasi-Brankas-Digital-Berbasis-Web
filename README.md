@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SAFEVAULT - Brankas Digital Pribadi (Versi 0.1)
 
 SAFEVAULT adalah aplikasi web brankas digital pribadi yang dibangun menggunakan **PHP Native** dan **MySQL** yang berjalan di lingkungan web server **XAMPP**. Aplikasi ini dirancang untuk menyediakan tempat penyimpanan dan pengelolaan informasi sensitif secara terstruktur, aman, dan mudah dipelihara.
@@ -167,3 +168,7 @@ php tests/test_safevault.php
 2. **Secure File Vault**: Manajemen unggah berkas terenkripsi data-at-rest.
 3. **Image Steganography**: Fitur penyembunyian pesan di berkas citra digital.
 4. **Blockchain Audit Trail**: Buku besar log aktivitas brankas data.
+=======
+# SAFEVAULT---Pengembangan-Aplikasi-Brankas-Digital-Berbasis-Web
+SAFEVAULT merupakan aplikasi brankas digital pribadi yang memungkinkan pengguna menyimpan pesan rahasia, file, dan gambar dengan perlindungan kriptografi.  Pengguna tidak perlu mengirim pesan kepada orang lain. Mereka cukup menyimpan, melihat, dan mengambil kembali informasi rahasia melalui aplikasi setelah melewati proses autentikasi. 
+>>>>>>> 1cf98fcaf2b0d1f50f12fef6df11c2d8be28f74a
